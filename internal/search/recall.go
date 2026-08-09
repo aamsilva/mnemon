@@ -251,6 +251,16 @@ func IntentAwareRecall(db *store.DB, query string, queryVec []float64,
 
 	traversedCount := len(scoreMap)
 
+	// Exclude superseded insights added via beam search edges (fix 09-Ago).
+	superseded := db.GetSupersededIDs()
+	for id := range scoreMap {
+		if superseded[id] {
+			delete(scoreMap, id)
+			delete(viaMap, id)
+			delete(insightMap, id)
+		}
+	}
+
 	// Step 4: Multi-factor reranking
 	queryTokens := Tokenize(query)
 	queryEntitySet := make(map[string]bool, len(queryEntities))

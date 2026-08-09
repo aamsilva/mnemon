@@ -19,7 +19,7 @@ const (
 	HalfLifeDays = 30.0
 
 	// MaxInsights is the default cap before auto-pruning kicks in.
-	MaxInsights = 1000
+	MaxInsights = 5000
 
 	// PruneBatchSize is how many excess insights to prune at once.
 	PruneBatchSize = 10
@@ -552,10 +552,31 @@ func (db *DB) GetActiveInsightsBySourceOrdered(source string) ([]*model.Insight,
 }
 
 // GetAllActiveInsights returns all non-deleted insights.
+
+// GetSupersededIDs returns the set of insight IDs that have been superseded.
+// Used by recall to exclude superseded insights from ranking (fix 09-Ago).
+func (db *DB) GetSupersededIDs() map[string]bool {
+	result := make(map[string]bool)
+	rows, err := db.execer().Query(
+		`SELECT id FROM insights WHERE superseded_by_id IS NOT NULL AND superseded_by_id != ''`)
+	if err != nil {
+		return result
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			continue
+		}
+		result[id] = true
+	}
+	return result
+}
+
 func (db *DB) GetAllActiveInsights() ([]*model.Insight, error) {
 	rows, err := db.execer().Query(
 		`SELECT id, content, category, importance, tags, entities, source, access_count, created_at, updated_at, deleted_at
-		 FROM insights WHERE deleted_at IS NULL ORDER BY created_at DESC`)
+		 FROM insights WHERE deleted_at IS NULL AND superseded_by_id IS NULL ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -671,7 +692,7 @@ type EmbeddedInsight struct {
 // GetAllEmbeddings returns all active insights that have embeddings.
 func (db *DB) GetAllEmbeddings() ([]EmbeddedInsight, error) {
 	rows, err := db.execer().Query(
-		`SELECT id, content, embedding FROM insights WHERE deleted_at IS NULL AND embedding IS NOT NULL`)
+		`SELECT id, content, embedding FROM insights WHERE deleted_at IS NULL AND superseded_by_id IS NULL AND embedding IS NOT NULL`)
 	if err != nil {
 		return nil, err
 	}
