@@ -19,7 +19,8 @@ const (
 	HalfLifeDays = 30.0
 
 	// MaxInsights is the default cap before auto-pruning kicks in.
-	MaxInsights = 5000
+	// 09-Ago: 1000 -> 5000 (auto-prune apagou 1010 por engano). 16-Ago: 5000 -> 10000 (DB em 4991/5000).
+	MaxInsights = 10000
 
 	// PruneBatchSize is how many excess insights to prune at once.
 	PruneBatchSize = 10
