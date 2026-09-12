@@ -223,7 +223,10 @@ func Open(dataDir string) (*DB, error) {
 	}
 
 	dbPath := filepath.Join(dataDir, "mnemon.db")
-	conn, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	// busy_timeout (audit 12-Set P1-B): multi-processo (MCP CLI + daemon-emit +
+	// backups) com busy_timeout default=0 devolve SQL_BUSY instantâneo sob
+	// write contention. 5s = tapa custo sem mascarar deadlocks.
+	conn, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -322,6 +325,19 @@ CREATE INDEX IF NOT EXISTS idx_oplog_created ON oplog(created_at);
 	// Lifecycle migration: add effective_importance column
 	if err := addColumnIfNotExists(db.conn, `ALTER TABLE insights ADD COLUMN effective_importance REAL DEFAULT 0.5`); err != nil {
 		return fmt.Errorf("add effective_importance: %w", err)
+	}
+
+	// Supersedes lifecycle (audit 12-Set P0-A): as colunas existiam só em DBs antigas
+	// (ALTER manual); o CREATE TABLE nunca as criou → DBs frescas crashavam em
+	// recall com "no such column: superseded_by_id" (provado por 13 testes pré-falhas).
+	if err := addColumnIfNotExists(db.conn, `ALTER TABLE insights ADD COLUMN supersedes_id TEXT`); err != nil {
+		return fmt.Errorf("add supersedes_id: %w", err)
+	}
+	if err := addColumnIfNotExists(db.conn, `ALTER TABLE insights ADD COLUMN superseded_by_id TEXT`); err != nil {
+		return fmt.Errorf("add superseded_by_id: %w", err)
+	}
+	if _, err := db.conn.Exec(`CREATE INDEX IF NOT EXISTS idx_insights_superseded_by ON insights(superseded_by_id)`); err != nil {
+		return fmt.Errorf("create superseded_by index: %w", err)
 	}
 	if _, err := db.conn.Exec(`CREATE INDEX IF NOT EXISTS idx_insights_effective_imp ON insights(effective_importance)`); err != nil {
 		return fmt.Errorf("create effective_imp index: %w", err)
